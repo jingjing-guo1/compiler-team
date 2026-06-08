@@ -1,7 +1,7 @@
 /**
  * @file common.h
- * @brief 编译器公共头文件：数据结构、枚举、函数声明
- * @version 2.0 (多错误支持)
+ * @brief 编译器公共头文件（整合C语言子集）
+ * @version 4.0
  */
 
 #ifndef COMMON_H
@@ -15,7 +15,6 @@
 
 /* ========== 错误处理（多错误收集） ========== */
 
-/** 错误码（用于报告错误类型，不强制停止） */
 typedef enum {
     COMPILE_SUCCESS = 0,
     COMPILE_ERR_LEXICAL,
@@ -27,144 +26,204 @@ typedef enum {
     COMPILE_ERR_MEMORY
 } CompileErrorCode;
 
-/** 编译器全局状态 */
 typedef struct CompilerState {
-    int error_count;              /**< 已发生的错误总数 */
-    int max_errors;               /**< 最大允许错误数，超过则停止 */
+    int error_count;
+    int max_errors;
     CompileErrorCode last_error_code;
-    bool verbose;                 /**< 是否输出详细信息 */
-    bool dump_tokens;             /**< 是否打印Token流 */
-    bool dump_ast;                /**< 是否打印语法树 */
-    bool dump_ir;                 /**< 是否打印中间代码 */
+    bool verbose;
+    bool dump_tokens;
+    bool dump_ast;
+    bool dump_ir;
     const char *input_filename;
     const char *output_filename;
 } CompilerState;
 
-extern CompilerState g_state;     /**< 全局状态，在 main.c 中定义 */
+extern CompilerState g_state;
 
-/**
- * @brief 报告一个错误（不立即停止，增加错误计数）
- * @param code 错误码
- * @param fmt 格式化字符串（类似 printf）
- */
 void report_error(CompileErrorCode code, const char *fmt, ...);
-
-/**
- * @brief 检查是否应该停止编译（超过最大错误数或内存严重错误）
- * @return true 表示应该立即停止
- */
 bool should_stop(void);
-
-/**
- * @brief 安全内存分配，失败时报告致命错误并退出
- */
 void *safe_malloc(size_t size);
-
-/**
- * @brief 安全内存重分配
- */
 void *safe_realloc(void *ptr, size_t size);
 
-/* ========== 词法分析 ========== */
+/* ========== 词法分析（C语言子集，成员2清单） ========== */
 
-/** Token 类型（TINY 语言） */
 typedef enum {
-    TOKEN_IF, TOKEN_THEN, TOKEN_ELSE, TOKEN_END,
-    TOKEN_REPEAT, TOKEN_UNTIL, TOKEN_READ, TOKEN_WRITE,
-    TOKEN_ID, TOKEN_NUM,
-    TOKEN_ASSIGN,   // :=
-    TOKEN_EQ,       // =
+    TOKEN_EOF,
+    TOKEN_UNKNOWN,
+
+    /* 关键字 */
+    TOKEN_KW_INT,
+    TOKEN_KW_VOID,
+    TOKEN_KW_IF,
+    TOKEN_KW_ELSE,
+    TOKEN_KW_WHILE,
+    TOKEN_KW_RETURN,
+    TOKEN_KW_CONST,
+    TOKEN_KW_BREAK,
+    TOKEN_KW_CONTINUE,
+
+    /* 标识符与常量 */
+    TOKEN_IDENTIFIER,
+    TOKEN_INT_LITERAL,
+
+    /* 算术运算符 */
+    TOKEN_PLUS,     // +
+    TOKEN_MINUS,    // -
+    TOKEN_MUL,      // *
+    TOKEN_DIV,      // /
+    TOKEN_MOD,      // %
+
+    /* 赋值与比较运算符 */
+    TOKEN_ASSIGN,   // =
+    TOKEN_EQ,       // ==
+    TOKEN_NEQ,      // !=
     TOKEN_LT,       // <
-    TOKEN_PLUS, TOKEN_MINUS, TOKEN_TIMES, TOKEN_OVER,
-    TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_SEMICOLON,
-    TOKEN_EOF, TOKEN_ERROR
+    TOKEN_LE,       // <=
+    TOKEN_GT,       // >
+    TOKEN_GE,       // >=
+
+    /* 逻辑运算符 */
+    TOKEN_NOT,      // !
+    TOKEN_AND,      // &&
+    TOKEN_OR,       // ||
+
+    /* 界符 */
+    TOKEN_SEMICOLON,
+    TOKEN_COMMA,
+    TOKEN_LPAREN,
+    TOKEN_RPAREN,
+    TOKEN_LBRACE,
+    TOKEN_RBRACE,
+    TOKEN_LBRACKET,
+    TOKEN_RBRACKET,
+
+    /* 注释（不输出，但用于识别） */
+    TOKEN_COMMENT
 } TokenType;
 
-/** Token 结构 */
 typedef struct Token {
     TokenType type;
-    char *value;      /**< 对于 ID/NUM 存储词素字符串，其他为 NULL */
-    int line;         /**< 行号（用于错误报告） */
+    char *value;      // 标识符或数字的字符串
+    int line;
+    int column;       // 保留，可扩展
 } Token;
 
-/** Token 动态数组 */
 typedef struct TokenList {
     Token *tokens;
     int count;
     int capacity;
 } TokenList;
 
-/**
- * @brief 词法分析主函数（由成员2实现，但框架已提供基本错误恢复）
- * @param source_code 源代码字符串
- * @return Token 列表
- */
 TokenList *lex_analyze(const char *source_code);
-
 void free_token_list(TokenList *list);
 void dump_tokens(TokenList *list);
 
-/* ========== 语法树 ========== */
-
-/** 语法树节点类型 */
-typedef enum {
-    NODE_PROGRAM,
-    NODE_IF_STMT, NODE_REPEAT_STMT, NODE_ASSIGN_STMT,
-    NODE_READ_STMT, NODE_WRITE_STMT,
-    NODE_OP_EXPR, NODE_CONST_EXPR, NODE_ID_EXPR,
-    NODE_ERROR      /**< 错误节点，用于错误恢复时占位 */
-} NodeType;
+/* ========== 语法树（成员3清单） ========== */
 
 typedef struct ASTNode ASTNode;
 
+typedef enum {
+    /* 顶层结构 */
+    NODE_PROG,
+    NODE_COMP_UNIT,
+    /* 声明与定义 */
+    NODE_VAR_DECL,
+    NODE_CONST_DECL,
+    NODE_VAR_DEF,
+    NODE_CONST_DEF,
+    NODE_FUNC_DEF,
+    NODE_FUNC_FPARAM,
+    /* 语句 */
+    NODE_BLOCK,
+    NODE_ASSIGN_STMT,
+    NODE_IF_STMT,
+    NODE_WHILE_STMT,
+    NODE_BREAK_STMT,
+    NODE_CONTINUE_STMT,
+    NODE_RETURN_STMT,
+    NODE_EXPR_STMT,
+    /* 表达式 */
+    NODE_BINARY_EXPR,
+    NODE_UNARY_EXPR,
+    NODE_FUNC_CALL,
+    NODE_LVAL,
+    NODE_NUMBER
+} NodeType;
+
+/* 前置声明数据类型（成员4） */
+typedef enum {
+    TYPE_INT,
+    TYPE_VOID,
+    TYPE_UNKNOWN,
+    TYPE_ERROR
+} DataType;   // 简化版，去掉BOOL
+
 struct ASTNode {
     NodeType type;
-    int data_type;           /**< 语义分析后填充（1=int） */
-    ASTNode *child[3];       /**< 子节点（最多3个） */
-    ASTNode *sibling;        /**< 兄弟节点（用于语句序列） */
-    int line_no;             /**< 行号 */
+    DataType data_type;        // 语义分析后填充
+    ASTNode *child;            // 第一个子节点（用于列表或单个）
+    ASTNode *sibling;          // 兄弟节点
+    int line_no;
+    /* 联合属性 */
     union {
-        struct { char *name; } id;   /**< 标识符名 */
-        int int_val;                 /**< 整数值 */
-        char op;                     /**< 运算符 '+','-','*','/','<','=' */
+        char *name;            // 标识符、变量名、函数名
+        int int_val;           // 数字常量
+        char op;               // 运算符 '+','-','*','/','%','='等
     } attr;
 };
 
-/**
- * @brief 语法分析主函数（由成员3实现，但框架已提供错误恢复骨架）
- * @param tokens Token 列表
- * @return 语法树根节点（可能包含 NODE_ERROR 节点）
- */
 ASTNode *parse(TokenList *tokens);
-
 void free_ast(ASTNode *node);
 void dump_ast(ASTNode *node, int indent);
 
-/* ========== 语义分析 ========== */
+/* ========== 语义分析（成员4接口，简化但完整） ========== */
 
-/** 符号表节点（简单链表） */
+#define MAX_NAME_LEN 64
+
+typedef enum {
+    SYMBOL_VARIABLE,
+    SYMBOL_FUNCTION,
+    SYMBOL_PARAMETER
+} SymbolKind;
+
 typedef struct Symbol {
-    char *name;
-    int type;          /**< 1=int (简化) */
+    char name[MAX_NAME_LEN];
+    DataType type;
+    SymbolKind kind;
+    int scope_level;
+    int line;
     struct Symbol *next;
 } Symbol;
 
-void init_symbol_table(void);
-void insert_symbol(const char *name, int type);
-int lookup_symbol(const char *name);
-void semantic_analyze(ASTNode *root);
-void free_symbol_table(void);
+typedef struct SymbolTable {
+    Symbol *head;
+    int current_scope;
+} SymbolTable;
 
-/* ========== 中间代码生成 ========== */
+void init_symbol_table(SymbolTable *table);
+void enter_scope(SymbolTable *table);
+void exit_scope(SymbolTable *table);
+int insert_symbol(SymbolTable *table, const char *name, DataType type, SymbolKind kind, int line);
+Symbol *lookup_symbol(SymbolTable *table, const char *name);
+Symbol *lookup_symbol_current_scope(SymbolTable *table, const char *name);
+int semantic_analyze(ASTNode *root, SymbolTable *table);
+DataType analyze_expression(ASTNode *node, SymbolTable *table);
+void semantic_error(const char *message, int line);
+void print_symbol_table(SymbolTable *table);
+void free_symbol_table(SymbolTable *table);
 
-/** 三地址码操作码 */
+/* ========== 中间代码生成（成员5清单，扩展） ========== */
+
 typedef enum {
-    IR_ADD, IR_SUB, IR_MUL, IR_DIV,
-    IR_ASSIGN, IR_LABEL, IR_GOTO, IR_IF_FALSE_GOTO,
-    IR_EQ, IR_LT, IR_READ, IR_WRITE
-} IROp;
+    IR_ADD, IR_SUB, IR_MUL, IR_DIV, IR_MOD,
+    IR_ASSIGN,
+    IR_LT, IR_LE, IR_GT, IR_GE, IR_EQ, IR_NE,
+    IR_AND, IR_OR, IR_NOT,
+    IR_LABEL, IR_GOTO, IR_IF_FALSE_GOTO,
+    IR_RETURN, IR_CALL,
+    IR_FUNC_ENTER, IR_FUNC_EXIT
+} IROp;   // 增加函数相关和逻辑运算
 
-/** 四元式 */
 typedef struct IRQuad {
     IROp op;
     char *arg1;
@@ -172,7 +231,6 @@ typedef struct IRQuad {
     char *result;
 } IRQuad;
 
-/** 中间代码列表 */
 typedef struct IRCode {
     IRQuad *quads;
     int count;

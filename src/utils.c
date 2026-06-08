@@ -1,6 +1,6 @@
 /**
  * @file utils.c
- * @brief 辅助函数：内存释放、调试输出
+ * @brief 辅助函数：内存释放、调试输出（适配C语言子集）
  */
 
 #include "common.h"
@@ -16,10 +16,13 @@ void free_token_list(TokenList *list) {
 
 void free_ast(ASTNode *node) {
     if (!node) return;
-    for (int i = 0; i < 3; i++) free_ast(node->child[i]);
+    free_ast(node->child);
     free_ast(node->sibling);
-    if (node->type == NODE_ID_EXPR && node->attr.id.name) {
-        free(node->attr.id.name);
+    if ((node->type == NODE_LVAL || node->type == NODE_FUNC_CALL ||
+         node->type == NODE_VAR_DECL || node->type == NODE_VAR_DEF ||
+         node->type == NODE_FUNC_DEF || node->type == NODE_FUNC_FPARAM) &&
+        node->attr.name) {
+        free(node->attr.name);
     }
     free(node);
 }
@@ -46,41 +49,60 @@ void dump_tokens(TokenList *list) {
     }
 }
 
+static const char *node_type_str(NodeType type) {
+    switch (type) {
+        case NODE_PROG: return "Prog";
+        case NODE_COMP_UNIT: return "CompUnit";
+        case NODE_VAR_DECL: return "VarDecl";
+        case NODE_CONST_DECL: return "ConstDecl";
+        case NODE_VAR_DEF: return "VarDef";
+        case NODE_CONST_DEF: return "ConstDef";
+        case NODE_FUNC_DEF: return "FuncDef";
+        case NODE_FUNC_FPARAM: return "FuncFParam";
+        case NODE_BLOCK: return "Block";
+        case NODE_ASSIGN_STMT: return "AssignStmt";
+        case NODE_IF_STMT: return "IfStmt";
+        case NODE_WHILE_STMT: return "WhileStmt";
+        case NODE_BREAK_STMT: return "BreakStmt";
+        case NODE_CONTINUE_STMT: return "ContinueStmt";
+        case NODE_RETURN_STMT: return "ReturnStmt";
+        case NODE_EXPR_STMT: return "ExprStmt";
+        case NODE_BINARY_EXPR: return "BinaryExpr";
+        case NODE_UNARY_EXPR: return "UnaryExpr";
+        case NODE_FUNC_CALL: return "FuncCall";
+        case NODE_LVAL: return "LVal";
+        case NODE_NUMBER: return "Number";
+        default: return "Unknown";
+    }
+}
+
 void dump_ast(ASTNode *node, int indent) {
     if (!node) return;
     for (int i = 0; i < indent; i++) printf("  ");
-    const char *typestr = "Unknown";
-    switch (node->type) {
-        case NODE_PROGRAM:      typestr = "Program"; break;
-        case NODE_IF_STMT:      typestr = "IfStmt"; break;
-        case NODE_REPEAT_STMT:  typestr = "RepeatStmt"; break;
-        case NODE_ASSIGN_STMT:  typestr = "AssignStmt"; break;
-        case NODE_READ_STMT:    typestr = "ReadStmt"; break;
-        case NODE_WRITE_STMT:   typestr = "WriteStmt"; break;
-        case NODE_OP_EXPR:      typestr = "OpExpr"; break;
-        case NODE_CONST_EXPR:   typestr = "ConstExpr"; break;
-        case NODE_ID_EXPR:      typestr = "IdExpr"; break;
-        case NODE_ERROR:        typestr = "ErrorNode"; break;
-    }
-    printf("%s", typestr);
-    if (node->type == NODE_OP_EXPR) printf("('%c')", node->attr.op);
-    if (node->type == NODE_CONST_EXPR) printf("(%d)", node->attr.int_val);
-    if (node->type == NODE_ID_EXPR) printf("(%s)", node->attr.id.name);
+    printf("%s", node_type_str(node->type));
+    if (node->type == NODE_NUMBER) printf("(%d)", node->attr.int_val);
+    else if (node->type == NODE_LVAL || node->type == NODE_FUNC_CALL ||
+             node->type == NODE_VAR_DECL || node->type == NODE_FUNC_DEF ||
+             node->type == NODE_FUNC_FPARAM)
+        printf("(%s)", node->attr.name ? node->attr.name : "?");
+    else if (node->type == NODE_BINARY_EXPR || node->type == NODE_UNARY_EXPR)
+        printf("('%c')", node->attr.op);
     printf("\n");
-    for (int i = 0; i < 3; i++) dump_ast(node->child[i], indent + 1);
+    dump_ast(node->child, indent + 1);
     dump_ast(node->sibling, indent);
 }
 
 void dump_ir(IRCode *ir) {
     printf("====== IR CODE ======\n");
     const char *opname[] = {
-        "ADD", "SUB", "MUL", "DIV",
-        "ASSIGN", "LABEL", "GOTO", "IF_FALSE",
-        "EQ", "LT", "READ", "WRITE"
+        "ADD", "SUB", "MUL", "DIV", "MOD",
+        "ASSIGN", "LT", "LE", "GT", "GE", "EQ", "NE",
+        "AND", "OR", "NOT", "LABEL", "GOTO", "IF_FALSE",
+        "RETURN", "CALL", "FUNC_ENTER", "FUNC_EXIT"
     };
     for (int i = 0; i < ir->count; i++) {
         IRQuad *q = &ir->quads[i];
-        printf("%4d: %-8s", i, opname[q->op]);
+        printf("%4d: %-12s", i, opname[q->op]);
         if (q->arg1) printf(" %s", q->arg1);
         if (q->arg2) printf(", %s", q->arg2);
         if (q->result) printf(" -> %s", q->result);

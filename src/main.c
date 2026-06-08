@@ -1,13 +1,12 @@
 /**
  * @file main.c
- * @brief 主控程序：参数解析、各阶段调用、错误处理（多错误支持）
+ * @brief 主控程序：参数解析、各阶段调用、多错误处理
  */
 
 #include "common.h"
 
 CompilerState g_state = {0};
 
-/** 报告错误（增加计数，不退出） */
 void report_error(CompileErrorCode code, const char *fmt, ...) {
     g_state.error_count++;
     g_state.last_error_code = code;
@@ -22,7 +21,6 @@ void report_error(CompileErrorCode code, const char *fmt, ...) {
     }
 }
 
-/** 检查是否应停止（超过最大错误数） */
 bool should_stop(void) {
     if (g_state.error_count >= g_state.max_errors) {
         fprintf(stderr, "Fatal: too many errors (%d), compilation aborted.\n", g_state.error_count);
@@ -31,7 +29,6 @@ bool should_stop(void) {
     return false;
 }
 
-/** 安全内存分配 */
 void *safe_malloc(size_t size) {
     void *p = malloc(size);
     if (!p) {
@@ -41,7 +38,6 @@ void *safe_malloc(size_t size) {
     return p;
 }
 
-/** 安全内存重分配 */
 void *safe_realloc(void *ptr, size_t size) {
     void *p = realloc(ptr, size);
     if (!p && size) {
@@ -51,9 +47,8 @@ void *safe_realloc(void *ptr, size_t size) {
     return p;
 }
 
-/** 打印帮助信息 */
 static void print_usage(const char *prog) {
-    printf("Usage: %s [options] <input.sy>\n", prog);
+    printf("Usage: %s [options] <input.c>\n", prog);
     printf("Options:\n");
     printf("  -o <file>     Output assembly file (default: output.s)\n");
     printf("  -v            Verbose output\n");
@@ -63,10 +58,9 @@ static void print_usage(const char *prog) {
     printf("  -h, --help    Show this help\n");
 }
 
-/** 解析命令行参数 */
 static void parse_args(int argc, char *argv[]) {
     g_state.output_filename = "output.s";
-    g_state.max_errors = 20;      // 最多报告20个错误
+    g_state.max_errors = 20;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0) {
             g_state.verbose = true;
@@ -96,7 +90,6 @@ static void parse_args(int argc, char *argv[]) {
     }
 }
 
-/** 读取整个文件到字符串 */
 static char *read_file(const char *filename) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) {
@@ -122,7 +115,7 @@ int main(int argc, char *argv[]) {
     g_state.error_count = 0;
 
     if (g_state.verbose) {
-        printf("TINY Compiler (multi-error support)\n");
+        printf("TINY C Compiler (multi-error support)\n");
         printf("Input:  %s\n", g_state.input_filename);
         printf("Output: %s\n", g_state.output_filename);
     }
@@ -149,12 +142,15 @@ int main(int argc, char *argv[]) {
     if (should_stop()) goto free_ast;
 
     // 3. 语义分析
-    init_symbol_table();
-    semantic_analyze(ast);
+    SymbolTable sym_table;
+    if (!semantic_analyze(ast, &sym_table)) {
+        if (g_state.verbose) printf("Semantic analysis failed with %d errors\n", g_state.error_count);
+        goto free_sym;
+    }
     if (g_state.verbose) printf("Semantic analysis: %d errors\n", g_state.error_count);
     if (should_stop()) goto free_sym;
 
-    // 4. 中间代码生成（仅当无错误时才生成）
+    // 4. 中间代码生成
     IRCode *ir = NULL;
     if (g_state.error_count == 0) {
         ir = gen_ir(ast);
@@ -168,7 +164,7 @@ int main(int argc, char *argv[]) {
         if (g_state.verbose) printf("Skipping IR generation due to %d errors.\n", g_state.error_count);
     }
 
-    // 5. 目标代码生成（仅当无错误时）
+    // 5. 目标代码生成
     if (g_state.error_count == 0 && ir) {
         gen_assembly(ir, g_state.output_filename);
         if (g_state.verbose) printf("Assembly written to %s\n", g_state.output_filename);
@@ -178,7 +174,7 @@ int main(int argc, char *argv[]) {
 
     if (ir) free_ir(ir);
 free_sym:
-    free_symbol_table();
+    free_symbol_table(&sym_table);
 free_ast:
     free_ast(ast);
 free_tokens:
