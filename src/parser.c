@@ -46,7 +46,6 @@ static void synchronize(void) {
 }
 
 // 前向声明
-static ASTNode *declaration(void);
 static ASTNode *statement(void);
 static ASTNode *expression(void);
 static ASTNode *primary_expr(void);
@@ -66,6 +65,7 @@ static ASTNode *new_node(NodeType type, int line) {
     node->child = NULL;
     node->sibling = NULL;
     node->line_no = line;
+    node->size = -1;
     memset(&node->attr, 0, sizeof(node->attr));
     return node;
 }
@@ -134,7 +134,11 @@ static ASTNode *block_item_list(void) {
     while (current_token().type != TOKEN_RBRACE && current_token().type != TOKEN_EOF) {
         ASTNode *item = NULL;
         if (current_token().type == TOKEN_KW_INT || current_token().type == TOKEN_KW_VOID || current_token().type == TOKEN_KW_CONST) {
-            // 变量声明或常量声明（简化：只处理变量声明）
+            bool is_const = false;
+            if (current_token().type == TOKEN_KW_CONST) {
+                is_const = true;
+                advance();
+            }
             DataType type = parse_type_spec();
             if (current_token().type != TOKEN_IDENTIFIER) {
                 report_error(COMPILE_ERR_SYNTAX, "Expected identifier in declaration at line %d", current_token().line);
@@ -143,18 +147,44 @@ static ASTNode *block_item_list(void) {
             }
             Token id = current_token();
             advance();
-            ASTNode *decl = new_node(NODE_VAR_DECL, id.line);
+            
+            NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
+            int array_size = -1;
+
+            // 检查是否是数组声明: id[10]
+            if (current_token().type == TOKEN_LBRACKET) {
+                advance();
+                if (current_token().type != TOKEN_INT_LITERAL) {
+                    report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
+                } else {
+                    array_size = atoi(current_token().value);
+                    advance();
+                }
+                expect(TOKEN_RBRACKET);
+                node_type = NODE_ARRAY_DECL;
+            }
+
+            ASTNode *decl = new_node(node_type, id.line);
             decl->data_type = type;
             decl->attr.name = strdup(id.value);
-            // 初始化可选
+            if (node_type == NODE_ARRAY_DECL) {
+                decl->size = array_size;
+            }
+
             if (current_token().type == TOKEN_ASSIGN) {
+                if (node_type == NODE_ARRAY_DECL) {
+                    report_error(COMPILE_ERR_SYNTAX, "Array initialization not supported yet at line %d", id.line);
+                }
                 advance();
                 ASTNode *init = expression();
-                ASTNode *def = new_node(NODE_VAR_DEF, id.line);
+                ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, id.line);
                 def->child = init;
                 def->attr.name = strdup(id.value);
                 add_child(decl, def);
+            } else if (is_const) {
+                report_error(COMPILE_ERR_SYNTAX, "Constant declaration '%s' must be initialized at line %d", id.value, id.line);
             }
+            
             expect(TOKEN_SEMICOLON);
             item = decl;
         } else {
@@ -365,13 +395,21 @@ static ASTNode *primary_expr(void) {
         return node;
     } else if (tok.type == TOKEN_IDENTIFIER) {
         advance();
-        ASTNode *node = new_node(NODE_LVAL, tok.line);
-        node->attr.name = strdup(tok.value);
+        // 检查是否为数组访问: a[i]
+        if (current_token().type == TOKEN_LBRACKET) {
+            advance();
+            ASTNode *index = expression();
+            expect(TOKEN_RBRACKET);
+            ASTNode *node = new_node(NODE_ARRAY_ACCESS, tok.line);
+            node->attr.name = strdup(tok.value);
+            node->child = index;
+            return node;
+        }
         // 检查是否为函数调用
         if (current_token().type == TOKEN_LPAREN) {
             advance();
             ASTNode *call = new_node(NODE_FUNC_CALL, tok.line);
-            call->attr.name = node->attr.name;
+            call->attr.name = strdup(tok.value);
             // 解析实参列表
             if (current_token().type != TOKEN_RPAREN) {
                 do {
@@ -382,9 +420,10 @@ static ASTNode *primary_expr(void) {
                 } while (1);
             }
             expect(TOKEN_RPAREN);
-            free_ast(node);  // 释放LVAL节点，用call代替
             return call;
         }
+        ASTNode *node = new_node(NODE_LVAL, tok.line);
+        node->attr.name = strdup(tok.value);
         return node;
     } else if (tok.type == TOKEN_LPAREN) {
         advance();
@@ -414,40 +453,91 @@ static ASTNode *assignment_expr(void) {
     return left;
 }
 
-// 外部声明: 函数定义或声明（简化只处理函数定义）
+// 外部声明: 函数定义、全局变量或全局常量
 static ASTNode *external_declaration(void) {
-    DataType ret_type = parse_type_spec();
+    bool is_const = false;
+    if (current_token().type == TOKEN_KW_CONST) {
+        is_const = true;
+        advance();
+    }
+    
+    DataType type = parse_type_spec();
     if (current_token().type != TOKEN_IDENTIFIER) {
-        report_error(COMPILE_ERR_SYNTAX, "Expected function name at line %d", current_token().line);
+        report_error(COMPILE_ERR_SYNTAX, "Expected identifier at line %d", current_token().line);
         synchronize();
         return NULL;
     }
-    Token func_name = current_token();
+    
+    Token id = current_token();
     advance();
-    if (current_token().type != TOKEN_LPAREN) {
-        report_error(COMPILE_ERR_SYNTAX, "Expected '(' after function name at line %d", current_token().line);
-        synchronize();
-        return NULL;
+    
+    // 情况 1: 函数定义
+    if (current_token().type == TOKEN_LPAREN) {
+        if (is_const) {
+            report_error(COMPILE_ERR_SYNTAX, "Functions cannot be declared as const at line %d", id.line);
+        }
+        advance();
+        ASTNode *params = NULL;
+        if (current_token().type != TOKEN_RPAREN) {
+            params = param_list();
+        }
+        expect(TOKEN_RPAREN);
+        ASTNode *body = compound_stmt();
+        ASTNode *func = new_node(NODE_FUNC_DEF, id.line);
+        func->data_type = type;
+        func->attr.name = strdup(id.value);
+        func->child = params;
+        if (params) {
+            ASTNode *p = params;
+            while (p->sibling) p = p->sibling;
+            p->sibling = body;
+        } else {
+            func->child = body;
+        }
+        return func;
     }
-    advance();
-    ASTNode *params = NULL;
-    if (current_token().type != TOKEN_RPAREN) {
-        params = param_list();
+    
+    // 情况 2: 全局变量或数组声明
+    NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
+    int array_size = -1;
+
+    // 检查数组
+    if (current_token().type == TOKEN_LBRACKET) {
+        advance();
+        if (current_token().type != TOKEN_INT_LITERAL) {
+            report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
+        } else {
+            array_size = atoi(current_token().value);
+            advance();
+        }
+        expect(TOKEN_RBRACKET);
+        node_type = NODE_ARRAY_DECL;
     }
-    expect(TOKEN_RPAREN);
-    ASTNode *body = compound_stmt();
-    ASTNode *func = new_node(NODE_FUNC_DEF, func_name.line);
-    func->data_type = ret_type;
-    func->attr.name = strdup(func_name.value);
-    func->child = params;
-    if (params) {
-        ASTNode *p = params;
-        while (p->sibling) p = p->sibling;
-        p->sibling = body;
-    } else {
-        func->child = body;
+
+    ASTNode *decl = new_node(node_type, id.line);
+    decl->data_type = type;
+    decl->attr.name = strdup(id.value);
+    if (node_type == NODE_ARRAY_DECL) {
+        decl->size = array_size;
     }
-    return func;
+
+    // 初始化处理
+    if (current_token().type == TOKEN_ASSIGN) {
+        if (node_type == NODE_ARRAY_DECL) {
+            report_error(COMPILE_ERR_SYNTAX, "Global array initialization not supported yet at line %d", id.line);
+        }
+        advance();
+        ASTNode *init = expression();
+        ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, id.line);
+        def->child = init;
+        def->attr.name = strdup(id.value);
+        add_child(decl, def);
+    } else if (is_const) {
+        report_error(COMPILE_ERR_SYNTAX, "Global constant '%s' must be initialized at line %d", id.value, id.line);
+    }
+    
+    expect(TOKEN_SEMICOLON);
+    return decl;
 }
 
 // 程序入口

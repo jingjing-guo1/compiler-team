@@ -25,6 +25,10 @@ void exit_scope(SymbolTable *table) {
 }
 
 int insert_symbol(SymbolTable *table, const char *name, DataType type, SymbolKind kind, int line) {
+    return insert_symbol_array(table, name, type, kind, -1, line);
+}
+
+int insert_symbol_array(SymbolTable *table, const char *name, DataType type, SymbolKind kind, int size, int line) {
     // 检查当前作用域是否重复
     Symbol *p = table->head;
     while (p && p->scope_level == table->current_scope) {
@@ -39,6 +43,7 @@ int insert_symbol(SymbolTable *table, const char *name, DataType type, SymbolKin
     sym->name[MAX_NAME_LEN - 1] = '\0';
     sym->type = type;
     sym->kind = kind;
+    sym->size = size;
     sym->scope_level = table->current_scope;
     sym->line = line;
     sym->next = table->head;
@@ -93,12 +98,26 @@ DataType analyze_expression(ASTNode *node, SymbolTable *table) {
         case NODE_NUMBER:
             node->data_type = TYPE_INT;
             return TYPE_INT;
-        case NODE_LVAL: {
+        case NODE_LVAL:
+        case NODE_ARRAY_ACCESS: {
             Symbol *sym = lookup_symbol(table, node->attr.name);
             if (!sym) {
                 semantic_error("Undefined variable", node->line_no);
                 node->data_type = TYPE_UNKNOWN;
                 return TYPE_UNKNOWN;
+            }
+            if (node->type == NODE_ARRAY_ACCESS) {
+                if (sym->kind != SYMBOL_VARIABLE || sym->size == -1) {
+                    semantic_error("Variable is not an array", node->line_no);
+                }
+                // 检查下标
+                DataType index_type = analyze_expression(node->child, table);
+                if (index_type != TYPE_INT && index_type != TYPE_UNKNOWN) {
+                    semantic_error("Array index must be an integer", node->line_no);
+                }
+            } else {
+                // 如果是普通LVAL但它是数组，在某些上下文中可能需要报错，
+                // 但在C中数组名可以作为指针。这里暂时简化，如果普通访问数组名不报错。
             }
             node->data_type = sym->type;
             return sym->type;
@@ -149,8 +168,14 @@ static void analyze_statement(ASTNode *node, SymbolTable *table, DataType func_r
             exit_scope(table);
             break;
         case NODE_VAR_DECL:
+        case NODE_CONST_DECL:
+        case NODE_ARRAY_DECL:
             // 插入符号
-            insert_symbol(table, node->attr.name, node->data_type, SYMBOL_VARIABLE, node->line_no);
+            if (node->type == NODE_ARRAY_DECL)
+                insert_symbol_array(table, node->attr.name, node->data_type, SYMBOL_VARIABLE, node->size, node->line_no);
+            else
+                insert_symbol(table, node->attr.name, node->data_type, SYMBOL_VARIABLE, node->line_no);
+            
             if (node->child) {
                 ASTNode *def = node->child;
                 analyze_expression(def->child, table);
@@ -203,8 +228,6 @@ static void analyze_statement(ASTNode *node, SymbolTable *table, DataType func_r
         default:
             break;
     }
-    // 处理兄弟节点
-    analyze_statement(node->sibling, table, func_ret_type, has_return);
 }
 
 static void analyze_function(ASTNode *func, SymbolTable *table) {

@@ -129,6 +129,7 @@ typedef enum {
     /* 声明与定义 */
     NODE_VAR_DECL,
     NODE_CONST_DECL,
+    NODE_ARRAY_DECL,
     NODE_VAR_DEF,
     NODE_CONST_DEF,
     NODE_FUNC_DEF,
@@ -147,6 +148,7 @@ typedef enum {
     NODE_UNARY_EXPR,
     NODE_FUNC_CALL,
     NODE_LVAL,
+    NODE_ARRAY_ACCESS,
     NODE_NUMBER
 } NodeType;
 
@@ -164,6 +166,7 @@ struct ASTNode {
     ASTNode *child;            // 第一个子节点（用于列表或单个）
     ASTNode *sibling;          // 兄弟节点
     int line_no;
+    int size;                  // 数组长度（若为数组声明）
     /* 联合属性 */
     union {
         char *name;            // 标识符、变量名、函数名
@@ -190,6 +193,7 @@ typedef struct Symbol {
     char name[MAX_NAME_LEN];
     DataType type;
     SymbolKind kind;
+    int size;          // 数组长度（若是数组）
     int scope_level;
     int line;
     struct Symbol *next;
@@ -204,6 +208,7 @@ void init_symbol_table(SymbolTable *table);
 void enter_scope(SymbolTable *table);
 void exit_scope(SymbolTable *table);
 int insert_symbol(SymbolTable *table, const char *name, DataType type, SymbolKind kind, int line);
+int insert_symbol_array(SymbolTable *table, const char *name, DataType type, SymbolKind kind, int size, int line);
 Symbol *lookup_symbol(SymbolTable *table, const char *name);
 Symbol *lookup_symbol_current_scope(SymbolTable *table, const char *name);
 int semantic_analyze(ASTNode *root, SymbolTable *table);

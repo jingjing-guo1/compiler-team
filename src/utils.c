@@ -20,6 +20,8 @@ void free_ast(ASTNode *node) {
     free_ast(node->sibling);
     if ((node->type == NODE_LVAL || node->type == NODE_FUNC_CALL ||
          node->type == NODE_VAR_DECL || node->type == NODE_VAR_DEF ||
+         node->type == NODE_CONST_DECL || node->type == NODE_CONST_DEF ||
+         node->type == NODE_ARRAY_DECL || node->type == NODE_ARRAY_ACCESS ||
          node->type == NODE_FUNC_DEF || node->type == NODE_FUNC_FPARAM) &&
         node->attr.name) {
         free(node->attr.name);
@@ -67,6 +69,8 @@ static const char *node_type_str(NodeType type) {
         case NODE_CONTINUE_STMT: return "ContinueStmt";
         case NODE_RETURN_STMT: return "ReturnStmt";
         case NODE_EXPR_STMT: return "ExprStmt";
+        case NODE_ARRAY_DECL: return "ArrayDecl";
+        case NODE_ARRAY_ACCESS: return "ArrayAccess";
         case NODE_BINARY_EXPR: return "BinaryExpr";
         case NODE_UNARY_EXPR: return "UnaryExpr";
         case NODE_FUNC_CALL: return "FuncCall";
@@ -82,11 +86,14 @@ void dump_ast(ASTNode *node, int indent) {
     printf("%s", node_type_str(node->type));
     if (node->type == NODE_NUMBER) printf("(%d)", node->attr.int_val);
     else if (node->type == NODE_LVAL || node->type == NODE_FUNC_CALL ||
-             node->type == NODE_VAR_DECL || node->type == NODE_FUNC_DEF ||
-             node->type == NODE_FUNC_FPARAM)
+             node->type == NODE_VAR_DECL || node->type == NODE_VAR_DEF ||
+             node->type == NODE_CONST_DECL || node->type == NODE_CONST_DEF ||
+             node->type == NODE_ARRAY_DECL || node->type == NODE_ARRAY_ACCESS ||
+             node->type == NODE_FUNC_DEF || node->type == NODE_FUNC_FPARAM)
         printf("(%s)", node->attr.name ? node->attr.name : "?");
     else if (node->type == NODE_BINARY_EXPR || node->type == NODE_UNARY_EXPR)
         printf("('%c')", node->attr.op);
+    if (node->type == NODE_ARRAY_DECL) printf(" [size: %d]", node->size);
     printf("\n");
     dump_ast(node->child, indent + 1);
     dump_ast(node->sibling, indent);

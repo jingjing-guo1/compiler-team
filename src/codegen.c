@@ -7,13 +7,6 @@
 #include <ctype.h>
 
 static FILE *out;
-static int label_counter = 0;
-
-static char *new_asm_label(void) {
-    char *buf = safe_malloc(32);
-    sprintf(buf, ".L%d", label_counter++);
-    return buf;
-}
 
 static void emit(const char *fmt, ...) {
     va_list args;
