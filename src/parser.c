@@ -140,60 +140,81 @@ static ASTNode *block_item_list(void) {
                 advance();
             }
             DataType type = parse_type_spec();
-            if (current_token().type != TOKEN_IDENTIFIER) {
-                report_error(COMPILE_ERR_SYNTAX, "Expected identifier in declaration at line %d", current_token().line);
-                synchronize();
-                continue;
-            }
-            Token id = current_token();
-            advance();
             
-            NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
-            int array_size = -1;
-
-            // 检查是否是数组声明: id[10]
-            if (current_token().type == TOKEN_LBRACKET) {
+            ASTNode *first_decl = NULL;
+            ASTNode *last_decl = NULL;
+            
+            while (true) {
+                if (current_token().type != TOKEN_IDENTIFIER) {
+                    report_error(COMPILE_ERR_SYNTAX, "Expected identifier in declaration at line %d", current_token().line);
+                    synchronize();
+                    break;
+                }
+                Token id = current_token();
                 advance();
-                if (current_token().type != TOKEN_INT_LITERAL) {
-                    report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
-                } else {
-                    array_size = atoi(current_token().value);
+                
+                NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
+                int array_size = -1;
+
+                // 检查是否是数组声明: id[10]
+                if (current_token().type == TOKEN_LBRACKET) {
                     advance();
+                    if (current_token().type != TOKEN_INT_LITERAL) {
+                        report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
+                    } else {
+                        array_size = atoi(current_token().value);
+                        advance();
+                    }
+                    expect(TOKEN_RBRACKET);
+                    node_type = NODE_ARRAY_DECL;
                 }
-                expect(TOKEN_RBRACKET);
-                node_type = NODE_ARRAY_DECL;
-            }
 
-            ASTNode *decl = new_node(node_type, id.line);
-            decl->data_type = type;
-            decl->attr.name = strdup(id.value);
-            if (node_type == NODE_ARRAY_DECL) {
-                decl->size = array_size;
-            }
-
-            if (current_token().type == TOKEN_ASSIGN) {
+                ASTNode *decl = new_node(node_type, id.line);
+                decl->data_type = type;
+                decl->attr.name = strdup(id.value);
                 if (node_type == NODE_ARRAY_DECL) {
-                    report_error(COMPILE_ERR_SYNTAX, "Array initialization not supported yet at line %d", id.line);
+                    decl->size = array_size;
                 }
-                advance();
-                ASTNode *init = expression();
-                ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, id.line);
-                def->child = init;
-                def->attr.name = strdup(id.value);
-                add_child(decl, def);
-            } else if (is_const) {
-                report_error(COMPILE_ERR_SYNTAX, "Constant declaration '%s' must be initialized at line %d", id.value, id.line);
+
+                if (current_token().type == TOKEN_ASSIGN) {
+                    if (node_type == NODE_ARRAY_DECL) {
+                        report_error(COMPILE_ERR_SYNTAX, "Array initialization not supported yet at line %d", id.line);
+                    }
+                    advance();
+                    ASTNode *init = expression();
+                    ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, id.line);
+                    def->child = init;
+                    def->attr.name = strdup(id.value);
+                    add_child(decl, def);
+                } else if (is_const) {
+                    report_error(COMPILE_ERR_SYNTAX, "Constant declaration '%s' must be initialized at line %d", id.value, id.line);
+                }
+                
+                if (!first_decl) first_decl = decl;
+                else last_decl->sibling = decl;
+                last_decl = decl;
+
+                if (current_token().type == TOKEN_COMMA) {
+                    advance();
+                } else {
+                    break;
+                }
             }
-            
             expect(TOKEN_SEMICOLON);
-            item = decl;
+            item = first_decl;
         } else {
             item = statement();
         }
+        
         if (item) {
-            if (!head) head = item;
-            else tail->sibling = item;
+            if (!head) {
+                head = item;
+            } else {
+                tail->sibling = item;
+            }
+            // 更新 tail 到链表的末尾
             tail = item;
+            while (tail->sibling) tail = tail->sibling;
         }
     }
     return head;
@@ -263,8 +284,12 @@ static ASTNode *statement(void) {
             return NULL;  // 空语句
         default: {
             ASTNode *expr = expression();
+            if (!expr) {
+                synchronize();
+                return NULL;
+            }
             expect(TOKEN_SEMICOLON);
-            ASTNode *node = new_node(NODE_EXPR_STMT, expr ? expr->line_no : tok.line);
+            ASTNode *node = new_node(NODE_EXPR_STMT, expr->line_no);
             node->child = expr;
             return node;
         }
@@ -272,6 +297,22 @@ static ASTNode *statement(void) {
 }
 
 // 表达式解析（优先级从低到高）
+// 表达式解析（优先级从低到高，采用递归下降法）
+// assignment_expr -> logical_or_expr [ '=' assignment_expr ]
+static ASTNode *assignment_expr(void) {
+    ASTNode *left = logical_or_expr();
+    if (current_token().type == TOKEN_ASSIGN) {
+        advance();
+        ASTNode *right = assignment_expr();
+        ASTNode *assign = new_node(NODE_ASSIGN_STMT, left ? left->line_no : 0);
+        assign->child = left;
+        assign->child->sibling = right;
+        return assign;
+    }
+    return left;
+}
+
+// logical_or_expr -> logical_and_expr { '||' logical_and_expr }
 static ASTNode *logical_or_expr(void) {
     ASTNode *node = logical_and_expr();
     while (current_token().type == TOKEN_OR) {
@@ -287,6 +328,7 @@ static ASTNode *logical_or_expr(void) {
     return node;
 }
 
+// logical_and_expr -> equality_expr { '&&' equality_expr }
 static ASTNode *logical_and_expr(void) {
     ASTNode *node = equality_expr();
     while (current_token().type == TOKEN_AND) {
@@ -302,6 +344,7 @@ static ASTNode *logical_and_expr(void) {
     return node;
 }
 
+// equality_expr -> relational_expr { ('=='|'!=') relational_expr }
 static ASTNode *equality_expr(void) {
     ASTNode *node = relational_expr();
     while (current_token().type == TOKEN_EQ || current_token().type == TOKEN_NEQ) {
@@ -318,6 +361,7 @@ static ASTNode *equality_expr(void) {
     return node;
 }
 
+// relational_expr -> additive_expr { ('<'|'<='|'>'|'>=') additive_expr }
 static ASTNode *relational_expr(void) {
     ASTNode *node = additive_expr();
     while (current_token().type == TOKEN_LT || current_token().type == TOKEN_LE ||
@@ -340,6 +384,7 @@ static ASTNode *relational_expr(void) {
     return node;
 }
 
+// additive_expr -> multiplicative_expr { ('+'|'-') multiplicative_expr }
 static ASTNode *additive_expr(void) {
     ASTNode *node = multiplicative_expr();
     while (current_token().type == TOKEN_PLUS || current_token().type == TOKEN_MINUS) {
@@ -356,6 +401,7 @@ static ASTNode *additive_expr(void) {
     return node;
 }
 
+// multiplicative_expr -> unary_expr { ('*'|'/'|'%') unary_expr }
 static ASTNode *multiplicative_expr(void) {
     ASTNode *node = unary_expr();
     while (current_token().type == TOKEN_MUL || current_token().type == TOKEN_DIV || current_token().type == TOKEN_MOD) {
@@ -372,20 +418,24 @@ static ASTNode *multiplicative_expr(void) {
     return node;
 }
 
+// unary_expr -> primary_expr | ('-'|'!'|'+') unary_expr
 static ASTNode *unary_expr(void) {
-    if (current_token().type == TOKEN_MINUS || current_token().type == TOKEN_NOT) {
+    if (current_token().type == TOKEN_MINUS || current_token().type == TOKEN_NOT || current_token().type == TOKEN_PLUS) {
         int line = current_token().line;
-        char op = (current_token().type == TOKEN_MINUS) ? '-' : '!';
+        TokenType op_type = current_token().type;
         advance();
         ASTNode *operand = unary_expr();
+        if (op_type == TOKEN_PLUS) return operand; // 一元 '+' 不产生节点，直接返回操作数
+        
         ASTNode *unary = new_node(NODE_UNARY_EXPR, line);
-        unary->attr.op = op;
+        unary->attr.op = (op_type == TOKEN_MINUS) ? '-' : '!';
         unary->child = operand;
         return unary;
     }
     return primary_expr();
 }
 
+// primary_expr -> '(' expression ')' | ID | ID '[' expression ']' | ID '(' [args] ')' | NUMBER
 static ASTNode *primary_expr(void) {
     Token tok = current_token();
     if (tok.type == TOKEN_INT_LITERAL) {
@@ -440,19 +490,6 @@ static ASTNode *expression(void) {
     return assignment_expr();
 }
 
-static ASTNode *assignment_expr(void) {
-    ASTNode *left = logical_or_expr();
-    if (current_token().type == TOKEN_ASSIGN) {
-        advance();
-        ASTNode *right = assignment_expr();
-        ASTNode *assign = new_node(NODE_ASSIGN_STMT, left ? left->line_no : 0);
-        assign->child = left;
-        assign->child->sibling = right;
-        return assign;
-    }
-    return left;
-}
-
 // 外部声明: 函数定义、全局变量或全局常量
 static ASTNode *external_declaration(void) {
     bool is_const = false;
@@ -497,47 +534,76 @@ static ASTNode *external_declaration(void) {
         return func;
     }
     
-    // 情况 2: 全局变量或数组声明
-    NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
-    int array_size = -1;
-
-    // 检查数组
-    if (current_token().type == TOKEN_LBRACKET) {
-        advance();
-        if (current_token().type != TOKEN_INT_LITERAL) {
-            report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
+    // 情况 2: 全局变量或数组声明 (支持逗号分隔多个变量)
+    ASTNode *first_decl = NULL;
+    ASTNode *last_decl = NULL;
+    
+    bool first_time = true;
+    while (true) {
+        Token current_id;
+        if (first_time) {
+            current_id = id;
+            first_time = false;
         } else {
-            array_size = atoi(current_token().value);
+            if (current_token().type != TOKEN_IDENTIFIER) {
+                report_error(COMPILE_ERR_SYNTAX, "Expected identifier in multiple declaration at line %d", current_token().line);
+                break;
+            }
+            current_id = current_token();
             advance();
         }
-        expect(TOKEN_RBRACKET);
-        node_type = NODE_ARRAY_DECL;
-    }
 
-    ASTNode *decl = new_node(node_type, id.line);
-    decl->data_type = type;
-    decl->attr.name = strdup(id.value);
-    if (node_type == NODE_ARRAY_DECL) {
-        decl->size = array_size;
-    }
+        NodeType node_type = is_const ? NODE_CONST_DECL : NODE_VAR_DECL;
+        int array_size = -1;
 
-    // 初始化处理
-    if (current_token().type == TOKEN_ASSIGN) {
-        if (node_type == NODE_ARRAY_DECL) {
-            report_error(COMPILE_ERR_SYNTAX, "Global array initialization not supported yet at line %d", id.line);
+        // 检查数组
+        if (current_token().type == TOKEN_LBRACKET) {
+            advance();
+            if (current_token().type != TOKEN_INT_LITERAL) {
+                report_error(COMPILE_ERR_SYNTAX, "Array size must be an integer constant at line %d", current_token().line);
+            } else {
+                array_size = atoi(current_token().value);
+                advance();
+            }
+            expect(TOKEN_RBRACKET);
+            node_type = NODE_ARRAY_DECL;
         }
-        advance();
-        ASTNode *init = expression();
-        ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, id.line);
-        def->child = init;
-        def->attr.name = strdup(id.value);
-        add_child(decl, def);
-    } else if (is_const) {
-        report_error(COMPILE_ERR_SYNTAX, "Global constant '%s' must be initialized at line %d", id.value, id.line);
+
+        ASTNode *decl = new_node(node_type, current_id.line);
+        decl->data_type = type;
+        decl->attr.name = strdup(current_id.value);
+        if (node_type == NODE_ARRAY_DECL) {
+            decl->size = array_size;
+        }
+
+        // 初始化处理
+        if (current_token().type == TOKEN_ASSIGN) {
+            if (node_type == NODE_ARRAY_DECL) {
+                report_error(COMPILE_ERR_SYNTAX, "Global array initialization not supported yet at line %d", current_id.line);
+            }
+            advance();
+            ASTNode *init = expression();
+            ASTNode *def = new_node(is_const ? NODE_CONST_DEF : NODE_VAR_DEF, current_id.line);
+            def->child = init;
+            def->attr.name = strdup(current_id.value);
+            add_child(decl, def);
+        } else if (is_const) {
+            report_error(COMPILE_ERR_SYNTAX, "Global constant '%s' must be initialized at line %d", current_id.value, current_id.line);
+        }
+
+        if (!first_decl) first_decl = decl;
+        else last_decl->sibling = decl;
+        last_decl = decl;
+
+        if (current_token().type == TOKEN_COMMA) {
+            advance();
+        } else {
+            break;
+        }
     }
     
     expect(TOKEN_SEMICOLON);
-    return decl;
+    return first_decl;
 }
 
 // 程序入口
@@ -549,9 +615,14 @@ ASTNode *parse(TokenList *token_list) {
     while (current_token().type != TOKEN_EOF) {
         ASTNode *decl = external_declaration();
         if (decl) {
-            if (!prog->child) prog->child = decl;
-            else tail->sibling = decl;
+            if (!prog->child) {
+                prog->child = decl;
+            } else {
+                tail->sibling = decl;
+            }
+            // 更新 tail 到链表的末尾
             tail = decl;
+            while (tail->sibling) tail = tail->sibling;
         } else {
             synchronize();
         }
