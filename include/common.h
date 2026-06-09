@@ -194,6 +194,8 @@ typedef struct Symbol {
     DataType type;
     SymbolKind kind;
     int size;          // 数组长度（若是数组）
+    bool is_const;     // 常量不可被重新赋值
+    int param_count;   // 函数形参数量，非函数为 -1
     int scope_level;
     int line;
     struct Symbol *next;
