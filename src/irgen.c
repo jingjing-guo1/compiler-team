@@ -68,13 +68,12 @@ static char *gen_expr(ASTNode *node) {
 
         case NODE_ARRAY_ACCESS: {
             /* 数组访问：生成 t = arr[index] */
-            ASTNode *arr = node->child;
-            ASTNode *index = arr->sibling;
+            ASTNode *index = node->child;  // node->child 是下标表达式
             char *idx = gen_expr(index);
             char *tmp = new_temp();
             /* 使用特殊格式表示数组访问：arg1=数组名, arg2=下标, result=临时变量 */
             char arr_access[128];
-            sprintf(arr_access, "%s[%s]", arr->attr.name, idx);
+            sprintf(arr_access, "%s[%s]", node->attr.name, idx);  // 数组名存储在 node->attr.name 中
             add_quad(IR_ASSIGN, arr_access, NULL, tmp);
             return tmp;
         }
@@ -155,11 +154,10 @@ static char *gen_expr(ASTNode *node) {
 
             if (lval->type == NODE_ARRAY_ACCESS) {
                 /* 数组元素赋值：arr[index] = r */
-                ASTNode *arr = lval->child;
-                ASTNode *index = arr->sibling;
+                ASTNode *index = lval->child;  // lval->child 是下标表达式
                 char *idx = gen_expr(index);
                 char arr_access[128];
-                sprintf(arr_access, "%s[%s]", arr->attr.name, idx);
+                sprintf(arr_access, "%s[%s]", lval->attr.name, idx);  // 数组名存储在 lval->attr.name 中
                 add_quad(IR_ASSIGN, r, NULL, arr_access);
             } else {
                 /* 普通变量赋值 */
@@ -200,7 +198,7 @@ static void gen_condition(ASTNode *node, char *true_label, char *false_label) {
         /* 普通条件：计算表达式值，然后根据结果跳转 */
         char *cond = gen_expr(node);
         add_quad(IR_IF_FALSE_GOTO, cond, NULL, false_label);
-        add_quad(IR_GOTO, NULL, NULL, true_label);
+        /* 条件为真时，顺序执行后续代码，不需要无条件跳转 */
     }
 }
 
@@ -246,11 +244,10 @@ static void gen_stmt(ASTNode *node, char *break_label, char *continue_label) {
 
             if (lval->type == NODE_ARRAY_ACCESS) {
                 /* 数组元素赋值：arr[index] = r */
-                ASTNode *arr = lval->child;
-                ASTNode *index = arr->sibling;
+                ASTNode *index = lval->child;  // lval->child 是下标表达式
                 char *idx = gen_expr(index);
                 char arr_access[128];
-                sprintf(arr_access, "%s[%s]", arr->attr.name, idx);
+                sprintf(arr_access, "%s[%s]", lval->attr.name, idx);  // 数组名存储在 lval->attr.name 中
                 add_quad(IR_ASSIGN, r, NULL, arr_access);
             } else {
                 /* 普通变量赋值 */
