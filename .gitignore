@@ -1,0 +1,12 @@
+# Visual Studio 配置文件
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# 其他常见忽略项（可选）
+bin/
+obj/
+*.log
+*.bak
