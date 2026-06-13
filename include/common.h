@@ -33,6 +33,7 @@ typedef struct CompilerState {
     bool dump_tokens;
     bool dump_ast;
     bool dump_ir;
+    bool dump_symbols;          
     const char* input_filename;
     const char* output_filename;
 } CompilerState;

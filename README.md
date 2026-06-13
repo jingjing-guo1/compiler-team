@@ -157,44 +157,61 @@ Token序列
 ## 四、项目结构
 
 ```text
-.
-├── src/                          核心源码目录
-│   ├── main.c                    编译器主入口
-│   ├── lexer.c                   词法分析模块
-│   ├── parser.c                  语法分析模块
-│   ├── semantic.c                语义分析模块
-│   ├── irgen.c                   中间代码生成模块
-│   ├── codegen.c                 目标代码生成模块
-│   └── utils.c                   工具函数与错误处理
+compiler/
 │
-├── include/                      公共头文件目录
-│   └── common.h                  全局数据结构与接口声明
+├── src/                              核心源码目录
+│   ├── main.c                        编译器主程序入口
+│   ├── lexer.c                       词法分析器
+│   ├── parser.c                      语法分析器
+│   ├── semantic.c                    语义分析器
+│   ├── irgen.c                       中间代码(IR)生成
+│   └── codegen.c                     汇编代码生成
 │
-├── docs/                         项目文档目录
-│   ├── 测试报告.md
-│   ├── 编译器任务分工.md
-│   ├── 编译器项目协作指引.md
-│   ├── 编译器项目运行与验证说明.md
-│   └── 其他设计文档
+├── include/                          公共头文件目录
+│   └── common.h                      全局数据结构和函数声明
 │
-├── test/                         功能测试程序
-│   ├── factorial.c
-│   ├── if_test.c
-│   ├── array_test.c
-│   └── semantic_errors.c
+├── docs/                             项目文档目录
+│   ├── 成员数据流转总表.md            模块数据流说明
+│   ├── 测试报告.md                   测试结果汇总
+│   ├── 编译器任务分工.md              成员职责分工
+│   ├── 编译器项目协作指引.md          Git协作规范
+│   └── ...
 │
-├── tests/                        自动化测试目录
-│   ├── lexer_unit_test.c
-│   ├── ir_test.c
-│   ├── run_tests.sh
-│   └── test_cases/
+├── test/                             功能测试程序目录
+│   ├── array_test.c                  数组测试
+│   ├── const_test.c                  常量测试
+│   ├── factorial.c                   阶乘递归测试
+│   ├── forward_call.c                前向声明测试
+│   └── ...
 │
+├── tests/                            自动化测试目录
+│   ├── ir_test.c                     IR生成测试
+│   ├── test.c                        综合测试程序
+│   ├── run_lexer_tests.sh            词法测试脚本
+│   ├── run_tests.sh                  自动测试脚本
+│   ├── test_cases.sh                 测试用例脚本
+│   ├── ...
+│   └── test_cases/                   测试样例目录
+│       ├── valid/                    正确程序样例
+│       │   ├── 01_empty.c            空程序
+│       │   ├── 02_global_var.c       全局变量
+│       │   ├── 03_const.c            常量
+│       │   └── ...
+│       └── invalid/                  错误程序样例
+│           ├── 01_missing_semi.c     缺少分号
+│           ├── 02_unmatch_paren.c    括号不匹配
+│           ├── 03_undef_var.c        未定义变量
+│           ├── 04_array.c            数组错误
+│           ├── 04_modify_const.c     修改常量
+│           └── ...
 │
-├── Makefile                      项目编译脚本
-├── README.md                     项目说明文档
+├── Makefile                          项目编译脚本
+├── README.md                         项目说明文档
 │
-├── mycc.exe                      编译器可执行程序
-├── output.s                      默认生成的汇编代码
+├── mycc.exe                          编译器可执行程序
+├── factorial.s                       阶乘程序汇编输出
+│
+└── .git/                             Git版本管理目录
 ```
 
 ---

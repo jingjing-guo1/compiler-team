@@ -55,6 +55,7 @@ static void print_usage(const char *prog) {
     printf("  --dump-tokens Print token list\n");
     printf("  --dump-ast    Print abstract syntax tree\n");
     printf("  --dump-ir     Print intermediate code\n");
+    printf("  --dump-symbols Print symbol table (semantic analysis)\n");
     printf("  -h, --help    Show this help\n");
 }
 
@@ -70,6 +71,8 @@ static void parse_args(int argc, char *argv[]) {
             g_state.dump_ast = true;
         } else if (strcmp(argv[i], "--dump-ir") == 0) {
             g_state.dump_ir = true;
+        } else if (strcmp(argv[i], "--dump-symbols") == 0) {
+            g_state.dump_symbols = true;
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             g_state.output_filename = argv[++i];
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -149,6 +152,12 @@ int main(int argc, char *argv[]) {
     }
     if (g_state.verbose) printf("Semantic analysis: %d errors\n", g_state.error_count);
     if (should_stop()) goto free_sym;
+
+    // 转储符号表（如果需要）
+    if (g_state.dump_symbols) {
+        printf("====== SYMBOL TABLE ======\n");
+        print_symbol_table(&sym_table);
+    }
 
     // 4. 中间代码生成
     IRCode *ir = NULL;
